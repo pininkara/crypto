@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  crypto-toolbox:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crypto-toolbox
+    network_mode: "bridge"
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      # 部署时，请在宿主机上准备一份 ./config/config.toml 并填入 token 等信息
+      - ./config:/app/config
