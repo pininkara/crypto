@@ -1,2 +1,7 @@
 config.toml
 *.exe
+
+data/
+*.db
+*.sqlite
+*.sqlite3
