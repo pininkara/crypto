@@ -582,9 +582,9 @@ const AssetChart = ({ isDark }: AssetChartProps) => {
   }
 
   const latestValue = data[data.length - 1].close;
-  const firstValue = data[0].open;
-  const totalChange = latestValue - firstValue;
-  const totalChangePercent = firstValue !== 0 ? (totalChange / firstValue) * 100 : 0;
+  const yesterdayValue = data.length > 1 ? data[data.length - 2].close : 0;
+  const totalChange = yesterdayValue > 0 ? latestValue - yesterdayValue : 0;
+  const totalChangePercent = yesterdayValue > 0 ? (totalChange / yesterdayValue) * 100 : 0;
 
   return (
     <div className="max-w-4xl mx-auto animate-fade-in">
