@@ -6,6 +6,7 @@ import (
 	"crypto/internal/repository"
 	"crypto/pkg/binance"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -51,6 +52,7 @@ func InitBot() (*telebot.Bot, error) {
 	b.Handle("/list", handleListAlerts)
 	b.Handle("/delete", handleDeleteAlert)
 	b.Handle("/deleall", handleDeleteAllAlerts)
+	b.Handle("/assets", handleRecordAssets)
 
 	return b, nil
 }
@@ -110,6 +112,7 @@ Here are the supported commands:
 /list - Show all active price alerts
 /delete <ID> - Delete an alert by ID
 /deleall - Clear all alerts
+/assets <amount> - Record total assets (e.g. /assets 10000)
 /help - Show this help message`
 	return c.Send(msg)
 }
@@ -178,3 +181,32 @@ func handleDeleteAllAlerts(c telebot.Context) error {
 
 	return c.Send(fmt.Sprintf("🗑️ All %d alerts deleted successfully.", res.RowsAffected))
 }
+
+func handleRecordAssets(c telebot.Context) error {
+	args := c.Args()
+	if len(args) != 1 {
+		return c.Send("Usage: /assets <amount>\nExample: /assets 10000")
+	}
+
+	amount, err := strconv.ParseFloat(args[0], 64)
+	if err != nil {
+		return c.Send("❌ 无效的金额，请输入数字。")
+	}
+
+	// 保留两位小数
+	amount = math.Round(amount*100) / 100
+
+	record := model.AssetRecord{
+		ChatID: c.Chat().ID,
+		Amount: amount,
+	}
+
+	if err := repository.DB.Create(&record).Error; err != nil {
+		return c.Send("❌ 记录保存失败。")
+	}
+
+	msg := fmt.Sprintf("✅ 总资产已记录！\n💰 金额: %.2f\n📅 时间: %s",
+		amount, record.CreatedAt.Format("2006-01-02 15:04:05"))
+	return c.Send(msg)
+}
+

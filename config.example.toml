@@ -18,3 +18,9 @@ monitor_interval = 30 # 监控轮询间隔时间（秒）
 [binance]
 api_key = ""
 secret_key = ""
+
+[asset_tracker]
+enable = false               # 是否启用自动资产追踪（需要配置 Binance API Key）
+interval = 3600              # 获取频率（秒），默认 1 小时
+chat_id = 0                  # 关联的 Chat ID（填入你的 Telegram User ID）
+

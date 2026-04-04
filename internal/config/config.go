@@ -8,11 +8,12 @@ import (
 )
 
 type Config struct {
-	App      AppConfig
-	Database DatabaseConfig
-	Modules  ModulesConfig
-	Telegram TelegramConfig
-	Binance  BinanceConfig
+	App          AppConfig
+	Database     DatabaseConfig
+	Modules      ModulesConfig
+	Telegram     TelegramConfig
+	Binance      BinanceConfig
+	AssetTracker AssetTrackerConfig `mapstructure:"asset_tracker"`
 }
 
 type AppConfig struct {
@@ -39,6 +40,12 @@ type TelegramConfig struct {
 type BinanceConfig struct {
 	APIKey    string `mapstructure:"api_key"`
 	SecretKey string `mapstructure:"secret_key"`
+}
+
+type AssetTrackerConfig struct {
+	Enable   string `mapstructure:"enable"`    // 是否启用自动资产追踪
+	Interval int    `mapstructure:"interval"`  // 获取频率（秒）
+	ChatID   int64  `mapstructure:"chat_id"`   // 关联的 Chat ID（用于存储记录）
 }
 
 var Cfg *Config

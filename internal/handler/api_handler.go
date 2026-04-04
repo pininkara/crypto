@@ -3,9 +3,14 @@ package handler
 import (
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"sync"
+	"time"
 
+	"crypto/internal/config"
+	"crypto/internal/model"
+	"crypto/internal/repository"
 	"crypto/pkg/binance"
 
 	"github.com/adshao/go-binance/v2/futures"
@@ -144,4 +149,90 @@ func HandleSimulateGrid(c *gin.Context) {
 		"escape_weekly": math.Round(escapeRateWeekly*100) / 100,
 		"escape_monthly":math.Round(escapeRateMonthly*100) / 100,
 	})
+}
+
+// AssetDayData 表示某天的资产数据
+type AssetDayData struct {
+	Date   string    `json:"date"`
+	Values []float64 `json:"values"`
+}
+
+// HandleGetAssets 返回按日期聚合的总资产数据
+func HandleGetAssets(c *gin.Context) {
+	var records []model.AssetRecord
+	if err := repository.DB.Order("created_at ASC").Find(&records).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve asset records"})
+		return
+	}
+
+	if len(records) == 0 {
+		c.JSON(http.StatusOK, []AssetDayData{})
+		return
+	}
+
+	// 按日期分组
+	dayMap := make(map[string][]float64)
+	for _, r := range records {
+		dateStr := r.CreatedAt.Format("2006-01-02")
+		dayMap[dateStr] = append(dayMap[dateStr], r.Amount)
+	}
+
+	// 提取所有日期并排序
+	var dates []string
+	for d := range dayMap {
+		dates = append(dates, d)
+	}
+	sort.Strings(dates)
+
+	// 填充无数据的日期（复制前一天的值）
+	startDate, _ := time.Parse("2006-01-02", dates[0])
+	endDate, _ := time.Parse("2006-01-02", dates[len(dates)-1])
+
+	var result []AssetDayData
+	var lastValues []float64
+
+	for d := startDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
+		dateStr := d.Format("2006-01-02")
+		if vals, ok := dayMap[dateStr]; ok {
+			lastValues = vals
+			result = append(result, AssetDayData{Date: dateStr, Values: vals})
+		} else if lastValues != nil {
+			// 无数据日期，复制前一天最后一个值
+			lastVal := lastValues[len(lastValues)-1]
+			result = append(result, AssetDayData{Date: dateStr, Values: []float64{lastVal}})
+		}
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// HandleSyncAssets 立即调用 Binance API 获取当前资产并记录到数据库
+func HandleSyncAssets(c *gin.Context) {
+	// 获取配置的 ChatID
+	chatID := config.Cfg.AssetTracker.ChatID
+	if chatID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请在配置文件中设置 asset_tracker.chat_id 后再使用同步功能。"})
+		return
+	}
+
+	balance, err := binance.GetTotalAccountBalance()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取 Binance 资产失败: " + err.Error()})
+		return
+	}
+
+	// 保留两位小数
+	balance = math.Round(balance*100) / 100
+
+	record := model.AssetRecord{
+		ChatID: chatID,
+		Amount: balance,
+	}
+
+	if err := repository.DB.Create(&record).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存资产记录到数据库失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "同步成功", "balance": balance})
 }

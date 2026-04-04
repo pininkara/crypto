@@ -20,7 +20,7 @@ func InitDB() {
 	}
 
 	// 自动迁移模式
-	err = DB.AutoMigrate(&model.Alert{})
+	err = DB.AutoMigrate(&model.Alert{}, &model.AssetRecord{})
 	if err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}

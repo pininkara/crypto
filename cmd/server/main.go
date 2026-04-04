@@ -48,7 +48,10 @@ func main() {
 		}()
 	}
 
-	// 4. 启动 Gin Web 服务
+	// 5. 启动自动资产追踪
+	service.StartAssetTracker()
+
+	// 6. 启动 Gin Web 服务
 	if config.Cfg.Modules.EnableAPI == "true" || config.Cfg.Modules.EnableAPI == "1" || config.Cfg.Modules.EnableAPI == "True" || config.Cfg.Modules.EnableAPI == "" {
 		log.Println("API module is enabled. Starting Gin server...")
 		if config.Cfg.App.Env == "production" {
@@ -66,6 +69,10 @@ func main() {
 		
 		// 注册模拟计算网格策略的回测接口
 		r.POST("/api/simulate", handler.HandleSimulateGrid)
+		
+		// 注册总资产查询接口
+		r.GET("/api/assets", handler.HandleGetAssets)
+		r.POST("/api/assets/sync", handler.HandleSyncAssets)
 		
 		// 挂载静态资源：服务于基于 Vite 编译打包后的 web/dist
 		r.Static("/assets", "./web/dist/assets")
