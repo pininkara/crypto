@@ -424,3 +424,120 @@ func HandleSyncAssets(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "同步成功", "balance": balance})
 }
+
+// 定义原生记录带标记结构
+type AssetRecordResponse struct {
+	ID          uint      `json:"id"`
+	Amount      float64   `json:"amount"`
+	CreatedAt   time.Time `json:"created_at"`
+	IsDailyHigh bool      `json:"is_daily_high"`
+	IsDailyLow  bool      `json:"is_daily_low"`
+}
+
+type PaginatedAssetRecords struct {
+	Total int64                 `json:"total"`
+	Page  int                   `json:"page"`
+	Limit int                   `json:"limit"`
+	Data  []AssetRecordResponse `json:"data"`
+}
+
+// HandleGetAssetRecords 获取详尽的历史资产快照，带筛选、分页、及单日极值标记
+func HandleGetAssetRecords(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	startDate := c.Query("start_date")
+	endDate := c.Query("end_date")
+
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+
+	query := repository.DB.Model(&model.AssetRecord{})
+
+	if startDate != "" {
+		t, err := time.Parse("2006-01-02", startDate)
+		if err == nil {
+			query = query.Where("created_at >= ?", t)
+		}
+	}
+	if endDate != "" {
+		t, err := time.Parse("2006-01-02", endDate)
+		if err == nil {
+			t = t.AddDate(0, 0, 1)
+			query = query.Where("created_at < ?", t)
+		}
+	}
+
+	var total int64
+	query.Count(&total)
+
+	var records []model.AssetRecord
+	query.Order("created_at DESC").Offset((page - 1) * limit).Limit(limit).Find(&records)
+
+	type extremums struct {
+		max float64
+		min float64
+	}
+	dateExtremes := make(map[string]extremums)
+
+	if len(records) > 0 {
+		minT := records[len(records)-1].CreatedAt
+		maxT := records[0].CreatedAt
+
+		startOfDay := time.Date(minT.Year(), minT.Month(), minT.Day(), 0, 0, 0, 0, minT.Location())
+		endOfDay := time.Date(maxT.Year(), maxT.Month(), maxT.Day(), 23, 59, 59, 999999999, maxT.Location())
+
+		var dayRecords []model.AssetRecord
+		repository.DB.Where("created_at >= ? AND created_at <= ?", startOfDay, endOfDay).Find(&dayRecords)
+
+		for _, r := range dayRecords {
+			dStr := r.CreatedAt.Format("2006-01-02")
+			ext, ok := dateExtremes[dStr]
+			if !ok {
+				ext = extremums{max: r.Amount, min: r.Amount}
+			} else {
+				if r.Amount > ext.max {
+					ext.max = r.Amount
+				}
+				if r.Amount < ext.min {
+					ext.min = r.Amount
+				}
+			}
+			dateExtremes[dStr] = ext
+		}
+	}
+
+	var resData []AssetRecordResponse
+	for _, r := range records {
+		dStr := r.CreatedAt.Format("2006-01-02")
+		isHigh, isLow := false, false
+		if ext, ok := dateExtremes[dStr]; ok {
+			// 只在当天记录有差值时标记，排除一天只有一条记录的情况
+			if ext.max > ext.min {
+				if r.Amount == ext.max {
+					isHigh = true
+				} else if r.Amount == ext.min {
+					isLow = true
+				}
+			}
+		}
+
+		resData = append(resData, AssetRecordResponse{
+			ID:          r.ID,
+			Amount:      r.Amount,
+			CreatedAt:   r.CreatedAt,
+			IsDailyHigh: isHigh,
+			IsDailyLow:  isLow,
+		})
+	}
+
+	c.JSON(http.StatusOK, PaginatedAssetRecords{
+		Total: total,
+		Page:  page,
+		Limit: limit,
+		Data:  resData,
+	})
+}

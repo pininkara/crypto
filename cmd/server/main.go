@@ -13,6 +13,7 @@ import (
 	"crypto/pkg/binance"
 
 	"github.com/gin-gonic/gin"
+	"gopkg.in/telebot.v3"
 )
 
 func main() {
@@ -31,9 +32,11 @@ func main() {
 	binance.InitBinance()
 
 	// 4. 启动 Telegram Bot
+	var bot *telebot.Bot
+	var err error
 	if config.Cfg.Modules.EnableTelegram == "true" || config.Cfg.Modules.EnableTelegram == "1" || config.Cfg.Modules.EnableTelegram == "True" || config.Cfg.Modules.EnableTelegram == "" { // default to mapstructure true behaviour
 		log.Println("Telegram bot module is enabled.")
-		bot, err := handler.InitBot()
+		bot, err = handler.InitBot()
 		if err != nil {
 			log.Fatalf("Failed to initialize telegram bot: %v", err)
 		}
@@ -49,7 +52,7 @@ func main() {
 	}
 
 	// 5. 启动自动资产追踪
-	service.StartAssetTracker()
+	service.StartAssetTracker(bot)
 
 	// 6. 启动 Gin Web 服务
 	if config.Cfg.Modules.EnableAPI == "true" || config.Cfg.Modules.EnableAPI == "1" || config.Cfg.Modules.EnableAPI == "True" || config.Cfg.Modules.EnableAPI == "" {
@@ -73,6 +76,7 @@ func main() {
 		// 注册总资产查询接口
 		r.GET("/api/assets", handler.HandleGetAssets)
 		r.POST("/api/assets/sync", handler.HandleSyncAssets)
+		r.GET("/api/asset-records", handler.HandleGetAssetRecords)
 		
 		// 挂载静态资源：服务于基于 Vite 编译打包后的 web/dist
 		r.Static("/assets", "./web/dist/assets")

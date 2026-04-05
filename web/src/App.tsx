@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import GridCalculator from './components/GridCalculator'
 import AssetChart from './components/AssetChart'
+import { AssetReport } from './components/AssetReport'
 
 const extraStyles = `
 @keyframes gradientBg {
@@ -74,7 +75,12 @@ function App() {
       
       {activeTab === 'grid' && <GridCalculator />}
 
-      {activeTab === 'assets' && <AssetChart isDark={isDark} />}
+      {activeTab === 'assets' && (
+        <div className="space-y-6">
+          <AssetChart isDark={isDark} />
+          <AssetReport isDark={isDark} />
+        </div>
+      )}
     </div>
   )
 }

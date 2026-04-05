@@ -41,6 +41,10 @@ func checkAlerts(bot *telebot.Bot) {
 	pricesCache := make(map[string]float64)
 
 	for _, alert := range activeAlerts {
+		if alert.Symbol == "TOTAL_ASSETS" {
+			continue
+		}
+
 		price, ok := pricesCache[alert.Symbol]
 		if !ok {
 			p, err := binance.GetSymbolPrice(alert.Symbol)

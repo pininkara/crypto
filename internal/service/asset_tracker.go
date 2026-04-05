@@ -5,13 +5,16 @@ import (
 	"crypto/internal/model"
 	"crypto/internal/repository"
 	"crypto/pkg/binance"
+	"fmt"
 	"log"
 	"math"
 	"time"
+
+	"gopkg.in/telebot.v3"
 )
 
 // StartAssetTracker 启动自动资产追踪服务
-func StartAssetTracker() {
+func StartAssetTracker(bot *telebot.Bot) {
 	cfg := config.Cfg.AssetTracker
 
 	// 检查是否启用
@@ -34,17 +37,17 @@ func StartAssetTracker() {
 
 	// 启动时立即执行一次
 	go func() {
-		recordAssetBalance(cfg.ChatID)
+		recordAssetBalance(cfg.ChatID, bot)
 
 		ticker := time.NewTicker(time.Duration(interval) * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
-			recordAssetBalance(cfg.ChatID)
+			recordAssetBalance(cfg.ChatID, bot)
 		}
 	}()
 }
 
-func recordAssetBalance(chatID int64) {
+func recordAssetBalance(chatID int64, bot *telebot.Bot) {
 	balance, err := binance.GetTotalAccountBalance()
 	if err != nil {
 		log.Printf("Asset tracker: failed to get balance: %v", err)
@@ -65,4 +68,24 @@ func recordAssetBalance(chatID int64) {
 	}
 
 	log.Printf("Asset tracker: recorded balance %.2f for chat %d", balance, chatID)
+
+	// 推送警报逻辑
+	if bot != nil {
+		var alerts []model.Alert
+		if err := repository.DB.Where("chat_id = ? AND symbol = 'TOTAL_ASSETS' AND active = ?", chatID, true).Find(&alerts).Error; err == nil {
+			for _, a := range alerts {
+				if balance >= a.TargetPrice {
+					msg := fmt.Sprintf("🚨 **总资产提醒** 🚨\n当前总资产: `%.2f` USDT\n已达到或超过设定的界限: `%.2f`", balance, a.TargetPrice)
+					
+					// 推送 TG 消息
+					user := &telebot.User{ID: chatID}
+					bot.Send(user, msg, telebot.ModeMarkdown)
+
+					// 触发即失效：硬删除这条提醒
+					repository.DB.Delete(&a)
+					log.Printf("Asset tracker: triggered alert ID %d", a.ID)
+				}
+			}
+		}
+	}
 }

@@ -6,7 +6,6 @@ import (
 	"crypto/internal/repository"
 	"crypto/pkg/binance"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -109,10 +108,10 @@ func handleHelp(c telebot.Context) error {
 	msg := `🤖 Welcome to Crypto Toolbox Bot!
 Here are the supported commands:
 /add <symbol> <price> - Create a price alert (e.g. /add btc 100000)
-/list - Show all active price alerts
+/list - Show all active alerts
 /delete <ID> - Delete an alert by ID
 /deleall - Clear all alerts
-/assets <amount> - Record total assets (e.g. /assets 10000)
+/assets <target_amount> - Alert when total assets exceed amount (e.g. /assets 50000)
 /help - Show this help message`
 	return c.Send(msg)
 }
@@ -128,24 +127,29 @@ func handleListAlerts(c telebot.Context) error {
 	}
 
 	var msg strings.Builder
-	msg.WriteString("💰 Price Alerts:\n")
+	msg.WriteString("💰 Active Alerts:\n")
 	for _, a := range alerts {
-		// 取最新行情
-		currentPrice, _ := binance.GetSymbolPrice(a.Symbol)
-		
-		symbolName := a.Symbol
-		if strings.HasSuffix(symbolName, "USDT") {
-			symbolName = strings.TrimSuffix(symbolName, "USDT")
+		if a.Symbol == "TOTAL_ASSETS" {
+			// 特殊渲染：总资产提醒
+			balance, _ := binance.GetTotalAccountBalance()
+			msg.WriteString(fmt.Sprintf("🏦 总资产提醒: 目标 > %v USDT [ID:%d] (最新值: %.2f USDT)\n", a.TargetPrice, a.ID, balance))
+		} else {
+			// 取最新行情
+			currentPrice, _ := binance.GetSymbolPrice(a.Symbol)
+			
+			symbolName := a.Symbol
+			if strings.HasSuffix(symbolName, "USDT") {
+				symbolName = strings.TrimSuffix(symbolName, "USDT")
+			}
+			
+			sign := ">"
+			emoji := "📈"
+			if a.Condition == "LESS" {
+				sign = "<"
+				emoji = "📉"
+			}
+			msg.WriteString(fmt.Sprintf("🔷 %s: %v USDT\n  • %s Target: %s %v [ID:%d]\n", symbolName, currentPrice, emoji, sign, a.TargetPrice, a.ID))
 		}
-		
-		sign := ">"
-		emoji := "📈"
-		if a.Condition == "LESS" {
-			sign = "<"
-			emoji = "📉"
-		}
-		// 结合原样输出与原ID机制
-		msg.WriteString(fmt.Sprintf("🔷 %s: %v USDT\n  • %s Target: %s %v [ID:%d]\n", symbolName, currentPrice, emoji, sign, a.TargetPrice, a.ID))
 	}
 
 	return c.Send(msg.String())
@@ -184,29 +188,51 @@ func handleDeleteAllAlerts(c telebot.Context) error {
 
 func handleRecordAssets(c telebot.Context) error {
 	args := c.Args()
-	if len(args) != 1 {
-		return c.Send("Usage: /assets <amount>\nExample: /assets 10000")
+	if len(args) == 0 {
+		return c.Send("Usage: /assets <target_amount> [target_amount2] ...\nExample: /assets 50000 60000")
 	}
 
-	amount, err := strconv.ParseFloat(args[0], 64)
-	if err != nil {
-		return c.Send("❌ 无效的金额，请输入数字。")
+	var saved []float64
+	for _, arg := range args {
+		targetAmount, err := strconv.ParseFloat(arg, 64)
+		if err != nil {
+			continue // Skip invalid numbers instead of failing the whole command
+		}
+
+		// 录入提醒数据库
+		alert := model.Alert{
+			ChatID:      c.Chat().ID,
+			Symbol:      "TOTAL_ASSETS",
+			TargetPrice: targetAmount,
+			Condition:   "GREATER", // 默认监控拉升超额
+			Active:      true,
+		}
+
+		if err := repository.DB.Create(&alert).Error; err == nil {
+			saved = append(saved, targetAmount)
+		}
 	}
 
-	// 保留两位小数
-	amount = math.Round(amount*100) / 100
-
-	record := model.AssetRecord{
-		ChatID: c.Chat().ID,
-		Amount: amount,
+	if len(saved) == 0 {
+		return c.Send("❌ 未能成功设置任何资产提醒，请检查输入的金额是否有效。")
 	}
 
-	if err := repository.DB.Create(&record).Error; err != nil {
-		return c.Send("❌ 记录保存失败。")
+	// 格式化展示已保存的目标
+	var targetsStr []string
+	for _, s := range saved {
+		targetsStr = append(targetsStr, fmt.Sprintf("%.2f", s))
+	}
+	joinedTargets := strings.Join(targetsStr, ", ")
+
+	// 取一下当前的资产，告知他设定成功
+	balance, err := binance.GetTotalAccountBalance()
+	currentMsg := ""
+	if err == nil {
+		currentMsg = fmt.Sprintf("\n当前账户余额: %.2f USDT", balance)
 	}
 
-	msg := fmt.Sprintf("✅ 总资产已记录！\n💰 金额: %.2f\n📅 时间: %s",
-		amount, record.CreatedAt.Format("2006-01-02 15:04:05"))
+	msg := fmt.Sprintf("✅ 资产提醒设置成功！\n🎯 当总资产达到: > (%s) USDT 时将通知您。%s",
+		joinedTargets, currentMsg)
 	return c.Send(msg)
 }
 
