@@ -1,18 +1,35 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 
-interface AssetDayData {
-  date: string;
-  values: number[];
+interface PeriodSummary {
+  change: number;
+  percent: number;
+  baseline: number;
+  peak: number;
+  max_drop: number;
+  wins: number;
+  losses: number;
 }
 
-interface DayBar {
+interface AssetDayData {
   date: string;
   values: number[];
   open: number;
   close: number;
   high: number;
   low: number;
-  isFilled: boolean;
+  average: number;
+  is_filled: boolean;
+  is_win: boolean;
+  ma7?: number;
+  ma15?: number;
+  ma30?: number;
+}
+
+interface AssetResponse {
+  data: AssetDayData[];
+  daily: PeriodSummary;
+  weekly: PeriodSummary;
+  monthly: PeriodSummary;
 }
 
 interface AssetChartProps {
@@ -56,7 +73,8 @@ const LIGHT_COLORS = {
 const AssetChart = ({ isDark }: AssetChartProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [data, setData] = useState<DayBar[]>([]);
+  const [data, setData] = useState<AssetDayData[]>([]);
+  const [summary, setSummary] = useState<AssetResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
@@ -74,30 +92,19 @@ const AssetChart = ({ isDark }: AssetChartProps) => {
   const fetchData = useCallback(() => {
     fetch('/api/assets')
       .then(res => res.json())
-      .then((raw: AssetDayData[]) => {
-        if (!raw || raw.length === 0) {
+      .then((raw: AssetResponse) => {
+        if (!raw || !raw.data || raw.data.length === 0) {
           setData([]);
+          setSummary(null);
           setLoading(false);
           return;
         }
         
-        const bars: DayBar[] = raw.map((d, i) => {
-          const prevClose = i > 0 ? raw[i - 1].values[raw[i - 1].values.length - 1] : d.values[0];
-          return {
-            date: d.date,
-            values: d.values,
-            open: prevClose,
-            close: d.values[d.values.length - 1],
-            high: Math.max(...d.values),
-            low: Math.min(...d.values),
-            isFilled: d.values.length === 1 && i > 0 && d.values[0] === raw[i - 1].values[raw[i - 1].values.length - 1],
-          };
-        });
-        
-        setData(bars);
-        const vc = Math.min(30, bars.length);
+        setData(raw.data);
+        setSummary(raw);
+        const vc = Math.min(30, raw.data.length);
         viewRef.current.visibleCount = vc;
-        viewRef.current.startIdx = Math.max(0, bars.length - vc);
+        viewRef.current.startIdx = Math.max(0, raw.data.length - vc);
         setLoading(false);
       })
       .catch(() => {
@@ -256,7 +263,7 @@ const AssetChart = ({ isDark }: AssetChartProps) => {
       const bar = visibleData[i];
       const x = PADDING_LEFT + barWidth * i + barWidth / 2;
       
-      if (bar.isFilled) {
+      if (bar.is_filled) {
         ctx.fillStyle = COLORS.neutral;
         ctx.globalAlpha = 0.4;
         ctx.beginPath();
@@ -292,6 +299,32 @@ const AssetChart = ({ isDark }: AssetChartProps) => {
         ctx.fill();
       }
     }
+
+    // 画均线
+    const drawLine = (key: 'ma7'|'ma15'|'ma30', color: string) => {
+      ctx.beginPath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      let first = true;
+      for (let i = 0; i < visibleData.length; i++) {
+        const bar = visibleData[i];
+        if (bar[key] !== undefined && bar[key] !== null && bar[key]! > 0) {
+          const x = PADDING_LEFT + barWidth * i + barWidth / 2;
+          const y = priceToY(bar[key]!);
+          if (first) {
+            ctx.moveTo(x, y);
+            first = false;
+          } else {
+            ctx.lineTo(x, y);
+          }
+        }
+      }
+      ctx.stroke();
+    };
+
+    drawLine('ma7', '#f0b90b');
+    drawLine('ma15', '#d726de');
+    drawLine('ma30', '#2174de');
 
     // 日期轴
     ctx.fillStyle = COLORS.text;
@@ -352,8 +385,13 @@ const AssetChart = ({ isDark }: AssetChartProps) => {
         ctx.fillText(dateLabel, bx, H - PADDING_BOTTOM + 16);
 
         // Tooltip
-        const tooltipW = 170;
-        const tooltipH = bar.values.length > 1 ? 90 : 60;
+        let tooltipLines = bar.values.length > 1 ? 5 : 4;
+        if (bar.ma7) tooltipLines++;
+        if (bar.ma15) tooltipLines++;
+        if (bar.ma30) tooltipLines++;
+
+        const tooltipW = 180;
+        const tooltipH = 20 + 20 * tooltipLines;
         let tx = bx + 15;
         let ty = mouseY - tooltipH / 2;
         if (tx + tooltipW > W - PADDING_RIGHT) tx = bx - tooltipW - 15;
@@ -374,22 +412,38 @@ const AssetChart = ({ isDark }: AssetChartProps) => {
         ctx.textAlign = 'left';
         ctx.fillText(`📅 ${bar.date}`, tx + 10, ty + 18);
         
+        let tpY = ty + 38;
+        ctx.font = '11px monospace';
         if (bar.values.length > 1) {
-          ctx.font = '11px monospace';
           ctx.fillStyle = COLORS.up;
-          ctx.fillText(`📈 最高: ${formatNumber(bar.high)}`, tx + 10, ty + 38);
+          ctx.fillText(`📈 最高: ${formatNumber(bar.high)}`, tx + 10, tpY); tpY += 18;
           ctx.fillStyle = COLORS.down;
-          ctx.fillText(`📉 最低: ${formatNumber(bar.low)}`, tx + 10, ty + 56);
+          ctx.fillText(`📉 最低: ${formatNumber(bar.low)}`, tx + 10, tpY); tpY += 18;
           ctx.fillStyle = COLORS.textBright;
-          ctx.fillText(`📊 记录: ${bar.values.length} 次`, tx + 10, ty + 74);
+          ctx.fillText(`📊 记录: ${bar.values.length} 次`, tx + 10, tpY); tpY += 18;
         } else {
-          ctx.font = '11px monospace';
           ctx.fillStyle = COLORS.textBright;
-          ctx.fillText(`💰 资产: ${formatNumber(bar.close)}`, tx + 10, ty + 38);
-          if (bar.isFilled) {
+          ctx.fillText(`💰 资产: ${formatNumber(bar.close)}`, tx + 10, tpY); tpY += 18;
+          if (bar.is_filled) {
             ctx.fillStyle = COLORS.neutral;
-            ctx.fillText(`(复制前日数据)`, tx + 10, ty + 54);
+            ctx.fillText(`(无新数据)`, tx + 10, tpY); tpY += 18;
           }
+        }
+        
+        ctx.fillStyle = COLORS.neutral;
+        ctx.fillText(`🔄 均值: ${formatNumber(bar.average)}`, tx + 10, tpY); tpY += 18;
+
+        if (bar.ma7) {
+          ctx.fillStyle = '#f0b90b';
+          ctx.fillText(`· MA7: ${formatNumber(bar.ma7)}`, tx + 10, tpY); tpY += 18;
+        }
+        if (bar.ma15) {
+          ctx.fillStyle = '#d726de';
+          ctx.fillText(`· MA15: ${formatNumber(bar.ma15)}`, tx + 10, tpY); tpY += 18;
+        }
+        if (bar.ma30) {
+          ctx.fillStyle = '#2174de';
+          ctx.fillText(`· MA30: ${formatNumber(bar.ma30)}`, tx + 10, tpY); tpY += 18;
         }
       }
     }
@@ -581,35 +635,49 @@ const AssetChart = ({ isDark }: AssetChartProps) => {
     );
   }
 
-  const latestValue = data[data.length - 1].close;
-  const yesterdayValue = data.length > 1 ? data[data.length - 2].close : 0;
-  const totalChange = yesterdayValue > 0 ? latestValue - yesterdayValue : 0;
-  const totalChangePercent = yesterdayValue > 0 ? (totalChange / yesterdayValue) * 100 : 0;
+  const renderMetricCard = (title: string, metrics: PeriodSummary, prevType: string, isDaily: boolean = false) => {
+    const hasBaseline = metrics.baseline > 0;
+    const isPositive = metrics.change >= 0;
+    const colorClass = !hasBaseline ? 'text-gray-500 dark:text-gray-400' : (isPositive ? 'text-emerald-500' : 'text-red-500');
+    const sign = isPositive && hasBaseline ? '+' : '';
+
+    const totalDays = metrics.wins + metrics.losses;
+    const winRate = totalDays > 0 ? (metrics.wins / totalDays) * 100 : 0;
+
+    return (
+      <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center flex flex-col justify-center gap-3 transition-transform hover:scale-[1.02]">
+        <p className="text-base font-medium text-gray-800 dark:text-gray-200">{title}</p>
+        
+        <div className={`text-2xl lg:text-3xl font-bold font-mono flex items-baseline justify-center gap-2 ${colorClass}`}>
+          <span>{hasBaseline ? `${sign}${formatNumber(metrics.change)}` : '0'}</span>
+          <span className="text-base font-medium">({hasBaseline ? `${sign}${metrics.percent.toFixed(2)}%` : '0%'})</span>
+        </div>
+        
+        <div className="text-xs text-gray-500 dark:text-gray-400 flex justify-center gap-3">
+          <span>{prevType}均值: {hasBaseline ? formatNumber(metrics.baseline) : '--'}</span>
+          <span>{prevType}峰值: {metrics.peak > 0 ? formatNumber(metrics.peak) : '--'} {metrics.max_drop < 0 ? <span className="text-red-400">({metrics.max_drop.toFixed(2)}%)</span> : ''}</span>
+        </div>
+
+        {!isDaily && (
+          <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mt-1">
+            胜率: {metrics.wins}胜{metrics.losses}负 <span className={winRate >= 50 ? 'text-emerald-500' : 'text-red-500'}>({winRate.toFixed(1)}%)</span>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
-    <div className="max-w-4xl mx-auto animate-fade-in">
-      {/* 统计卡片与同步按钮 */}
-      <div className="flex flex-col md:flex-row gap-4 mb-4 items-start md:items-center">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 flex-1 w-full">
-          <div className="p-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+    <div className="max-w-5xl mx-auto animate-fade-in">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-5 gap-4 bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="flex items-center gap-6">
+          <div>
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">当前资产</p>
-            <p className="text-lg font-bold text-gray-800 dark:text-gray-100 font-mono">{formatNumber(latestValue)}</p>
+            <p className="text-3xl font-bold text-gray-800 dark:text-gray-100 font-mono">${formatNumber(data[data.length - 1].close)}</p>
           </div>
-          <div className="p-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">总变动</p>
-            <p className={`text-lg font-bold font-mono ${totalChange >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-              {totalChange >= 0 ? '+' : ''}{formatNumber(totalChange)}
-            </p>
-          </div>
-          <div className="p-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">变动率</p>
-            <p className={`text-lg font-bold font-mono ${totalChangePercent >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-              {totalChangePercent >= 0 ? '+' : ''}{totalChangePercent.toFixed(2)}%
-            </p>
-          </div>
-          <div className="p-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+          <div className="border-l border-gray-200 dark:border-gray-700 pl-6">
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">记录天数</p>
-            <p className="text-lg font-bold text-gray-800 dark:text-gray-100 font-mono">{data.length}</p>
+            <p className="text-xl font-bold text-gray-800 dark:text-gray-100 font-mono">{data.length}</p>
           </div>
         </div>
         
@@ -617,7 +685,7 @@ const AssetChart = ({ isDark }: AssetChartProps) => {
           <button 
             onClick={handleSync}
             disabled={syncing}
-            className="w-full md:w-auto px-6 py-4 md:py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-md font-medium transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full md:w-auto px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-sm font-medium transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {syncing ? (
               <>
@@ -639,11 +707,19 @@ const AssetChart = ({ isDark }: AssetChartProps) => {
         </div>
       </div>
 
+      {summary && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-6">
+          {renderMetricCard("每日盈亏", summary.daily, "昨日", true)}
+          {renderMetricCard("本周盈亏", summary.weekly, "上周")}
+          {renderMetricCard("本月盈亏", summary.monthly, "上月")}
+        </div>
+      )}
+
       {/* 图表 */}
       <div 
         ref={containerRef}
-        className={`rounded-xl shadow-lg overflow-hidden ${isDark ? 'border border-gray-700' : 'border border-gray-200'}`}
-        style={{ background: COLORS.bg, height: '420px' }}
+        className={`rounded-xl shadow-lg border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}
+        style={{ background: COLORS.bg, height: '600px' }}
       >
         <canvas
           ref={canvasRef}
@@ -652,7 +728,7 @@ const AssetChart = ({ isDark }: AssetChartProps) => {
       </div>
 
       {/* 图例 */}
-      <div className="flex flex-wrap items-center gap-4 mt-3 px-1 text-xs text-gray-500 dark:text-gray-400">
+      <div className="flex flex-wrap items-center gap-4 mt-4 px-2 text-xs text-gray-500 dark:text-gray-400">
         <span className="flex items-center gap-1.5">
           <span className="inline-block w-3 h-3 rounded-full" style={{background: COLORS.up}} />
           上涨
@@ -663,15 +739,19 @@ const AssetChart = ({ isDark }: AssetChartProps) => {
         </span>
         <span className="flex items-center gap-1.5">
           <span className="inline-block w-3 h-3 rounded-sm" style={{background: COLORS.neutral, opacity: 0.4}} />
-          无数据 (延用前日)
+          无记录 (继承前日)
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block w-6 border-t-2 border-dashed" style={{borderColor: COLORS.maxLine}} />
-          区间最高
+          <span className="inline-block w-4 border-t-2 border-solid mt-0.5" style={{borderColor: '#f0b90b'}} />
+          MA7
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block w-6 border-t-2 border-dashed" style={{borderColor: COLORS.minLine}} />
-          区间最低
+          <span className="inline-block w-4 border-t-2 border-solid mt-0.5" style={{borderColor: '#d726de'}} />
+          MA15
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-4 border-t-2 border-solid mt-0.5" style={{borderColor: '#2174de'}} />
+          MA30
         </span>
         <span className="ml-auto">🖱️ 滚轮缩放 · 拖拽平移</span>
       </div>

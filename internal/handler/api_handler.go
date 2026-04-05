@@ -153,11 +153,38 @@ func HandleSimulateGrid(c *gin.Context) {
 
 // AssetDayData 表示某天的资产数据
 type AssetDayData struct {
-	Date   string    `json:"date"`
-	Values []float64 `json:"values"`
+	Date     string    `json:"date"`
+	Values   []float64 `json:"values"`
+	Open     float64   `json:"open"`
+	Close    float64   `json:"close"`
+	High     float64   `json:"high"`
+	Low      float64   `json:"low"`
+	Average  float64   `json:"average"`
+	IsFilled bool      `json:"is_filled"`
+	IsWin    bool      `json:"is_win"`
+	MA7      *float64  `json:"ma7,omitempty"`
+	MA15     *float64  `json:"ma15,omitempty"`
+	MA30     *float64  `json:"ma30,omitempty"`
 }
 
-// HandleGetAssets 返回按日期聚合的总资产数据
+type PeriodSummary struct {
+	Change   float64 `json:"change"`
+	Percent  float64 `json:"percent"`
+	Baseline float64 `json:"baseline"`
+	Peak     float64 `json:"peak"`
+	MaxDrop  float64 `json:"max_drop"`
+	Wins     int     `json:"wins"`
+	Losses   int     `json:"losses"`
+}
+
+type AssetResponse struct {
+	Data    []AssetDayData `json:"data"`
+	Daily   PeriodSummary  `json:"daily"`
+	Weekly  PeriodSummary  `json:"weekly"`
+	Monthly PeriodSummary  `json:"monthly"`
+}
+
+// HandleGetAssets 返回按日期聚合并计算各项指标的总资产数据
 func HandleGetAssets(c *gin.Context) {
 	var records []model.AssetRecord
 	if err := repository.DB.Order("created_at ASC").Find(&records).Error; err != nil {
@@ -166,7 +193,7 @@ func HandleGetAssets(c *gin.Context) {
 	}
 
 	if len(records) == 0 {
-		c.JSON(http.StatusOK, []AssetDayData{})
+		c.JSON(http.StatusOK, AssetResponse{})
 		return
 	}
 
@@ -188,22 +215,183 @@ func HandleGetAssets(c *gin.Context) {
 	startDate, _ := time.Parse("2006-01-02", dates[0])
 	endDate, _ := time.Parse("2006-01-02", dates[len(dates)-1])
 
-	var result []AssetDayData
+	var dayData []AssetDayData
 	var lastValues []float64
 
 	for d := startDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
 		dateStr := d.Format("2006-01-02")
-		if vals, ok := dayMap[dateStr]; ok {
+		vals, ok := dayMap[dateStr]
+		isFilled := false
+		if !ok && lastValues != nil {
+			vals = []float64{lastValues[len(lastValues)-1]}
+			isFilled = true
+		} else if ok {
 			lastValues = vals
-			result = append(result, AssetDayData{Date: dateStr, Values: vals})
-		} else if lastValues != nil {
-			// 无数据日期，复制前一天最后一个值
-			lastVal := lastValues[len(lastValues)-1]
-			result = append(result, AssetDayData{Date: dateStr, Values: []float64{lastVal}})
+		}
+
+		sum := 0.0
+		high := -math.MaxFloat64
+		low := math.MaxFloat64
+		for _, v := range vals {
+			sum += v
+			if v > high {
+				high = v
+			}
+			if v < low {
+				low = v
+			}
+		}
+		avg := sum / float64(len(vals))
+
+		dayData = append(dayData, AssetDayData{
+			Date:     dateStr,
+			Values:   vals,
+			Open:     vals[0],
+			Close:    vals[len(vals)-1],
+			High:     high,
+			Low:      low,
+			Average:  math.Round(avg*100) / 100,
+			IsFilled: isFilled,
+		})
+	}
+
+	if len(dayData) == 0 {
+		c.JSON(http.StatusOK, AssetResponse{})
+		return
+	}
+
+	latestClose := dayData[len(dayData)-1].Close
+	latestDateStr := dayData[len(dayData)-1].Date
+	todayDate, _ := time.Parse("2006-01-02", latestDateStr)
+
+	offset := int(time.Monday - todayDate.Weekday())
+	if offset > 0 {
+		offset = -6
+	}
+	thisWeekStart := todayDate.AddDate(0, 0, offset)
+	lastWeekStart := thisWeekStart.AddDate(0, 0, -7)
+	lastWeekEnd := thisWeekStart.AddDate(0, 0, -1)
+
+	thisMonthStart := time.Date(todayDate.Year(), todayDate.Month(), 1, 0, 0, 0, 0, time.UTC)
+	lastMonthStart := thisMonthStart.AddDate(0, -1, 0)
+	lastMonthEnd := thisMonthStart.AddDate(0, 0, -1)
+
+	thisWeekStartStr := thisWeekStart.Format("2006-01-02")
+	lastWeekStartStr := lastWeekStart.Format("2006-01-02")
+	lastWeekEndStr := lastWeekEnd.Format("2006-01-02")
+	thisMonthStartStr := thisMonthStart.Format("2006-01-02")
+	lastMonthStartStr := lastMonthStart.Format("2006-01-02")
+	lastMonthEndStr := lastMonthEnd.Format("2006-01-02")
+
+	var yesterday []AssetDayData
+	if len(dayData) > 1 {
+		yesterday = append(yesterday, dayData[len(dayData)-2])
+	}
+	var lastWeekDays, thisWeekDays []AssetDayData
+	var lastMonthDays, thisMonthDays []AssetDayData
+
+	for i := range dayData {
+		// Win check based on Average > PrevDay Average
+		if i > 0 {
+			dayData[i].IsWin = dayData[i].Average > dayData[i-1].Average
+		}
+
+		// Calculate Moving Averages (based on Close price)
+		if i >= 6 {
+			sum := 0.0
+			for j := 0; j < 7; j++ {
+				sum += dayData[i-j].Close
+			}
+			ma7 := math.Round((sum/7)*100) / 100
+			dayData[i].MA7 = &ma7
+		}
+		if i >= 14 {
+			sum := 0.0
+			for j := 0; j < 15; j++ {
+				sum += dayData[i-j].Close
+			}
+			ma15 := math.Round((sum/15)*100) / 100
+			dayData[i].MA15 = &ma15
+		}
+		if i >= 29 {
+			sum := 0.0
+			for j := 0; j < 30; j++ {
+				sum += dayData[i-j].Close
+			}
+			ma30 := math.Round((sum/30)*100) / 100
+			dayData[i].MA30 = &ma30
+		}
+
+		// Group for summaries
+		dDate := dayData[i].Date
+		if dDate >= lastWeekStartStr && dDate <= lastWeekEndStr {
+			lastWeekDays = append(lastWeekDays, dayData[i])
+		}
+		if dDate >= thisWeekStartStr {
+			thisWeekDays = append(thisWeekDays, dayData[i])
+		}
+		if dDate >= lastMonthStartStr && dDate <= lastMonthEndStr {
+			lastMonthDays = append(lastMonthDays, dayData[i])
+		}
+		if dDate >= thisMonthStartStr {
+			thisMonthDays = append(thisMonthDays, dayData[i])
 		}
 	}
 
-	c.JSON(http.StatusOK, result)
+	calcSummary := func(tgtRange []AssetDayData) PeriodSummary {
+		var s PeriodSummary
+		if len(tgtRange) == 0 {
+			return s
+		}
+		sumAvg := 0.0
+		peak := -math.MaxFloat64
+		for _, d := range tgtRange {
+			sumAvg += d.Average
+			if d.High > peak {
+				peak = d.High
+			}
+		}
+		baseline := math.Round((sumAvg/float64(len(tgtRange)))*100) / 100
+		s.Baseline = baseline
+		s.Peak = peak
+		s.Change = math.Round((latestClose-baseline)*100) / 100
+		if baseline > 0 {
+			s.Percent = math.Round((s.Change/baseline)*10000) / 100
+		}
+		if peak > 0 && latestClose < peak {
+			s.MaxDrop = math.Round(((peak-latestClose)/peak)*10000) / 100
+		}
+		return s
+	}
+
+	dailySummary := calcSummary(yesterday)
+	weeklySummary := calcSummary(lastWeekDays)
+	monthlySummary := calcSummary(lastMonthDays)
+
+	// Populate Win/Loss
+	for _, d := range thisWeekDays {
+		if d.IsWin {
+			weeklySummary.Wins++
+		} else {
+			weeklySummary.Losses++
+		}
+	}
+	for _, d := range thisMonthDays {
+		if d.IsWin {
+			monthlySummary.Wins++
+		} else {
+			monthlySummary.Losses++
+		}
+	}
+
+	resp := AssetResponse{
+		Data:    dayData,
+		Daily:   dailySummary,
+		Weekly:  weeklySummary,
+		Monthly: monthlySummary,
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 // HandleSyncAssets 立即调用 Binance API 获取当前资产并记录到数据库
