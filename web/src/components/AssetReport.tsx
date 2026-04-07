@@ -152,7 +152,7 @@ export function AssetReport({ isDark }: AssetReportProps) {
                 const dateObj = new Date(record.created_at);
                 const formatTime = dateObj.toLocaleString('zh-CN', { 
                   year: 'numeric', month: '2-digit', day: '2-digit', 
-                  hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false 
+                  hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'Asia/Shanghai' 
                 }).replace(/\//g, '-');
                 
                 let highlightClass = '';

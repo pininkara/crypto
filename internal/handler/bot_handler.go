@@ -87,6 +87,12 @@ func handleAddAlert(c telebot.Context) error {
 		condition = "LESS"
 	}
 
+	var count int64
+	repository.DB.Model(&model.Alert{}).Where("chat_id = ? AND symbol = ? AND target_price = ? AND condition = ?", c.Chat().ID, symbol, targetPrice, condition).Count(&count)
+	if count > 0 {
+		return c.Send(fmt.Sprintf("⚠️ 提醒已存在: %s %s %.2f", symbol, condition, targetPrice))
+	}
+
 	alert := model.Alert{
 		ChatID:      c.Chat().ID,
 		Symbol:      symbol,
@@ -193,10 +199,18 @@ func handleRecordAssets(c telebot.Context) error {
 	}
 
 	var saved []float64
+	var existed []float64
 	for _, arg := range args {
 		targetAmount, err := strconv.ParseFloat(arg, 64)
 		if err != nil {
 			continue // Skip invalid numbers instead of failing the whole command
+		}
+
+		var count int64
+		repository.DB.Model(&model.Alert{}).Where("chat_id = ? AND symbol = ? AND target_price = ? AND condition = ?", c.Chat().ID, "TOTAL_ASSETS", targetAmount, "GREATER").Count(&count)
+		if count > 0 {
+			existed = append(existed, targetAmount)
+			continue
 		}
 
 		// 录入提醒数据库
@@ -213,26 +227,35 @@ func handleRecordAssets(c telebot.Context) error {
 		}
 	}
 
-	if len(saved) == 0 {
-		return c.Send("❌ 未能成功设置任何资产提醒，请检查输入的金额是否有效。")
+	var msg strings.Builder
+
+	if len(existed) > 0 {
+		var existedStr []string
+		for _, s := range existed {
+			existedStr = append(existedStr, fmt.Sprintf("%.2f", s))
+		}
+		msg.WriteString(fmt.Sprintf("⚠️ 以下金额提醒已存在: %s\n", strings.Join(existedStr, ", ")))
 	}
 
-	// 格式化展示已保存的目标
-	var targetsStr []string
-	for _, s := range saved {
-		targetsStr = append(targetsStr, fmt.Sprintf("%.2f", s))
-	}
-	joinedTargets := strings.Join(targetsStr, ", ")
+	if len(saved) > 0 {
+		var targetsStr []string
+		for _, s := range saved {
+			targetsStr = append(targetsStr, fmt.Sprintf("%.2f", s))
+		}
+		joinedTargets := strings.Join(targetsStr, ", ")
 
-	// 取一下当前的资产，告知他设定成功
-	balance, err := binance.GetTotalAccountBalance()
-	currentMsg := ""
-	if err == nil {
-		currentMsg = fmt.Sprintf("\n当前账户余额: %.2f USDT", balance)
+		balance, err := binance.GetTotalAccountBalance()
+		currentMsg := ""
+		if err == nil {
+			currentMsg = fmt.Sprintf("\n当前账户余额: %.2f USDT", balance)
+		}
+
+		msg.WriteString(fmt.Sprintf("✅ 资产提醒设置成功！\n🎯 当总资产达到: > (%s) USDT 时将通知您。%s",
+			joinedTargets, currentMsg))
+	} else if len(existed) == 0 {
+		msg.WriteString("❌ 未能成功设置任何资产提醒，请检查输入的金额是否有效。")
 	}
 
-	msg := fmt.Sprintf("✅ 资产提醒设置成功！\n🎯 当总资产达到: > (%s) USDT 时将通知您。%s",
-		joinedTargets, currentMsg)
-	return c.Send(msg)
+	return c.Send(msg.String())
 }
 

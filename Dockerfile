@@ -33,6 +33,7 @@ WORKDIR /app
 
 # 添加 tzdata 时间库及 sqlite 运行时动态库(如有必要)
 RUN apk add --no-cache tzdata
+ENV TZ="Asia/Shanghai"
 
 COPY --from=frontend-builder /app/web/dist ./web/dist
 COPY --from=backend-builder /app/crypto-toolbox ./
