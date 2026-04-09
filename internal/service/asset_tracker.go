@@ -5,9 +5,13 @@ import (
 	"crypto/internal/model"
 	"crypto/internal/repository"
 	"crypto/pkg/binance"
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
+	"net/http"
+	"strings"
 	"time"
 
 	"gopkg.in/telebot.v3"
@@ -33,7 +37,12 @@ func StartAssetTracker(bot *telebot.Bot) {
 		interval = 3600 // 默认 1 小时
 	}
 
-	log.Printf("Asset tracker started. Interval: %ds, ChatID: %d", interval, cfg.ChatID)
+	if !cfg.UploaderMode {
+		log.Printf("Asset tracker: Receiver mode enabled.")
+		return
+	}
+
+	log.Printf("Asset tracker started (Uploader Mode). Interval: %ds, ChatID: %d", interval, cfg.ChatID)
 
 	// 启动时立即执行一次
 	go func() {
@@ -87,5 +96,36 @@ func recordAssetBalance(chatID int64, bot *telebot.Bot) {
 				}
 			}
 		}
+	}
+
+	if config.Cfg.AssetTracker.EnableUpload && config.Cfg.AssetTracker.UploadURL != "" {
+		go UploadAssetData(chatID, balance, record.CreatedAt)
+	}
+}
+
+// UploadAssetData 推送数据到远端接收者
+func UploadAssetData(chatID int64, balance float64, createdAt time.Time) {
+	payload := map[string]interface{}{
+		"chat_id":    chatID,
+		"amount":     balance,
+		"created_at": createdAt.Unix(),
+	}
+	jsonData, _ := json.Marshal(payload)
+
+	targetURL := config.Cfg.AssetTracker.UploadURL
+	if !strings.HasSuffix(targetURL, "/api/assets/receive") {
+		targetURL = strings.TrimRight(targetURL, "/") + "/api/assets/receive"
+	}
+
+	resp, err := http.Post(targetURL, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		log.Printf("Asset tracker: failed to upload asset data: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		log.Printf("Asset tracker: upload asset data failed with status code: %d", resp.StatusCode)
+	} else {
+		log.Printf("Asset tracker: successfully uploaded asset data to %s", targetURL)
 	}
 }

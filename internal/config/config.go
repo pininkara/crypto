@@ -43,9 +43,13 @@ type BinanceConfig struct {
 }
 
 type AssetTrackerConfig struct {
-	Enable   string `mapstructure:"enable"`    // 是否启用自动资产追踪
-	Interval int    `mapstructure:"interval"`  // 获取频率（秒）
-	ChatID   int64  `mapstructure:"chat_id"`   // 关联的 Chat ID（用于存储记录）
+	Enable       string `mapstructure:"enable"`        // 是否启用自动资产追踪
+	Interval     int    `mapstructure:"interval"`      // 获取频率（秒）
+	ChatID       int64  `mapstructure:"chat_id"`       // 关联的 Chat ID（用于存储记录）
+	UploaderMode bool   `mapstructure:"uploader_mode"` // 为 true 时为上传者，false 为接收者
+	EnableUpload bool   `mapstructure:"enable_upload"` // 是否启用上传 (仅 uploader_mode=true 生效)
+	UploadURL    string `mapstructure:"upload_url"`    // 上传 url (仅 uploader_mode=true 生效)
+	ReceiverPort int    `mapstructure:"receiver_port"` // 接收端口 (仅 uploader_mode=false 生效)
 }
 
 var Cfg *Config

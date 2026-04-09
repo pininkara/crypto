@@ -49,6 +49,9 @@ cp config.example.toml config/config.toml
 - 在 `[telegram]` 下配置 `monitor_interval = 30` 或更高以定义监控币价防频繁发包的轮询秒数。
 - 在 `[binance]` 下如果仅查询现货和K线可留空。若需开启**自动总资产追踪**，需填入对应的 `api_key` 和 `secret_key`。
 - 在 `[asset_tracker]` 下可配置 `enable = true` 开启自动资产记录，设置 `interval` 获取频率（默认 3600 秒），并填入 `chat_id`（您的 Telegram UID）。
+  - **分布式模式（解决 VPS 无法访问 Binance 的问题）**：如果服务器身处受限 IP 区域（如美国），可以将本项目分别部署在两个设备上：
+    - **上传者**（如家庭软路由）：开启 `uploader_mode = true`，配置好币安 API 及 `enable = true`，设置 `enable_upload = true` 并将 `upload_url` 指向接收者（如 `http://<VPS_IP>:8081/api/assets/receive`）。它会自动采集数据打上精准时间戳发送给接收者。
+    - **接收者**（如美国VPS）：开启 `uploader_mode = false`，此时无需配置币安 API 即自动作为接收服务器使用，资产将通过服务暴露在 `receiver_port = 8081` 端口供远程更新及图表读取。
 
 ### b) 准备数据目录
 确保当前目录下有一个可读写的 `data` 文件夹（用于存放 `crypto.db` SQLite 数据持久化）。

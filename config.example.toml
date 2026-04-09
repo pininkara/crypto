@@ -12,15 +12,18 @@ enable_api = true
 
 [telegram]
 token = "YOUR_TELEGRAM_BOT_TOKEN_HERE"
-allowed_users = [] # 填入允许使用该机器人的 Telegram User ID，例如 [11223344]
-monitor_interval = 30 # 监控轮询间隔时间（秒）
+allowed_users = []                     # 填入允许使用该机器人的 Telegram User ID，例如 [11223344]
+monitor_interval = 30                  # 监控轮询间隔时间（秒）
 
 [binance]
 api_key = ""
 secret_key = ""
 
 [asset_tracker]
-enable = false               # 是否启用自动资产追踪（需要配置 Binance API Key）
-interval = 3600              # 获取频率（秒），默认 1 小时
-chat_id = 0                  # 关联的 Chat ID（填入你的 Telegram User ID）
-
+enable = false        # 是否启用自动资产追踪（需要配置 Binance API Key）
+interval = 3600       # 获取频率（秒），默认 1 小时
+chat_id = 0           # 关联的 Chat ID（填入你的 Telegram User ID）
+uploader_mode = true  # 为true时为上传者，false为接收者
+enable_upload = false # uploader_mode为true时生效，是否启用上传
+upload_url = ""       # uploader_mode为true时生效，上传的url
+receiver_port = 8081  # uploader_mode为false时生效，接收端口

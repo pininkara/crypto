@@ -10,6 +10,7 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+      - "8081:8081" # 若采用接收者模式(Receiver Mode)，需映射对应的 receiver_port
     volumes:
       - ./data:/app/data
       # 部署时，请在宿主机上准备一份 ./config/config.toml 并填入 token 等信息

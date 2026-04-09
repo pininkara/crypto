@@ -78,6 +78,10 @@ func main() {
 		r.POST("/api/assets/sync", handler.HandleSyncAssets)
 		r.GET("/api/asset-records", handler.HandleGetAssetRecords)
 		
+		if !config.Cfg.AssetTracker.UploaderMode {
+			r.POST("/api/assets/receive", handler.HandleReceiveAsset)
+		}
+		
 		// 挂载静态资源：服务于基于 Vite 编译打包后的 web/dist
 		r.Static("/assets", "./web/dist/assets")
 		r.StaticFile("/", "./web/dist/index.html")
@@ -98,6 +102,9 @@ func main() {
 }
 
 func getPort() string {
+	if !config.Cfg.AssetTracker.UploaderMode && config.Cfg.AssetTracker.ReceiverPort != 0 {
+		return strconv.Itoa(config.Cfg.AssetTracker.ReceiverPort)
+	}
 	if config.Cfg.App.Port == 0 {
 		return "8080"
 	}

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"math"
 	"net/http"
 	"sort"
@@ -11,6 +12,7 @@ import (
 	"crypto/internal/config"
 	"crypto/internal/model"
 	"crypto/internal/repository"
+	"crypto/internal/service"
 	"crypto/pkg/binance"
 
 	"github.com/adshao/go-binance/v2/futures"
@@ -396,6 +398,11 @@ func HandleGetAssets(c *gin.Context) {
 
 // HandleSyncAssets 立即调用 Binance API 获取当前资产并记录到数据库
 func HandleSyncAssets(c *gin.Context) {
+	if !config.Cfg.AssetTracker.UploaderMode {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Receiver mode cannot sync assets from Binance directly."})
+		return
+	}
+
 	// 获取配置的 ChatID
 	chatID := config.Cfg.AssetTracker.ChatID
 	if chatID == 0 {
@@ -420,6 +427,11 @@ func HandleSyncAssets(c *gin.Context) {
 	if err := repository.DB.Create(&record).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存资产记录到数据库失败"})
 		return
+	}
+
+	if config.Cfg.AssetTracker.EnableUpload && config.Cfg.AssetTracker.UploadURL != "" {
+		// 需要引入 crypto/internal/service 或者直接调用 service 中的导出方法
+		go service.UploadAssetData(chatID, balance, record.CreatedAt)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "同步成功", "balance": balance})
@@ -540,4 +552,37 @@ func HandleGetAssetRecords(c *gin.Context) {
 		Limit: limit,
 		Data:  resData,
 	})
+}
+
+type ReceiveAssetRequest struct {
+	ChatID    int64   `json:"chat_id"`
+	Amount    float64 `json:"amount"`
+	CreatedAt int64   `json:"created_at"` // 从 uploader 获取的精准时间戳
+}
+
+// HandleReceiveAsset 处理从 uploader 发送过来的数据
+func HandleReceiveAsset(c *gin.Context) {
+	var req ReceiveAssetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid format"})
+		return
+	}
+
+	record := model.AssetRecord{
+		ChatID: req.ChatID,
+		Amount: req.Amount,
+	}
+
+	if req.CreatedAt > 0 {
+		record.CreatedAt = time.Unix(req.CreatedAt, 0)
+	}
+
+	if err := repository.DB.Create(&record).Error; err != nil {
+		log.Printf("Receiver: failed to save record: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+		return
+	}
+
+	log.Printf("Receiver: recorded balance %.2f for chat %d from uploader (created_at: %v)", req.Amount, req.ChatID, record.CreatedAt)
+	c.JSON(http.StatusOK, gin.H{"message": "success"})
 }
