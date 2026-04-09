@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import GridCalculator from './components/GridCalculator'
 import AssetChart from './components/AssetChart'
 import { AssetReport } from './components/AssetReport'
+import ClosePositionCalculator from './components/ClosePositionCalculator'
 
 const extraStyles = `
 @keyframes gradientBg {
@@ -22,7 +23,7 @@ html.dark .dynamic-bg {
 
 function App() {
   const [isDark, setIsDark] = useState(false);
-  const [activeTab, setActiveTab] = useState<'grid' | 'alerts' | 'assets'>('grid');
+  const [activeTab, setActiveTab] = useState<'grid' | 'alerts' | 'assets' | 'close_calc'>('grid');
 
   useEffect(() => {
     if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
@@ -62,6 +63,12 @@ function App() {
             >
               总资产
             </button>
+            <button
+              onClick={() => setActiveTab('close_calc')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'close_calc' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'}`}
+            >
+              平仓计算器
+            </button>
           </div>
           <button 
             onClick={toggleDarkMode} 
@@ -81,6 +88,8 @@ function App() {
           <AssetReport isDark={isDark} />
         </div>
       )}
+
+      {activeTab === 'close_calc' && <ClosePositionCalculator />}
     </div>
   )
 }

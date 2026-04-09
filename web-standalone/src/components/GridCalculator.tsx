@@ -53,108 +53,38 @@ const GridCalculator: React.FC = () => {
         }
 
         try {
-            const lowerBoundNum = Number(lowerBound);
-            const upperBoundNum = Number(upperBound);
-            const gridCountNum = Number(gridCount);
-
-            if (!lowerBoundNum || !upperBoundNum || !gridCountNum || upperBoundNum <= lowerBoundNum) {
-                throw new Error("网格参数验证错误，上限必须大于下限");
-            }
-
-            let gridLines: number[] = [];
-            if (gridType === 'arithmetic') {
-                const step = (upperBoundNum - lowerBoundNum) / gridCountNum;
-                for (let i = 0; i <= gridCountNum; i++) {
-                    gridLines.push(lowerBoundNum + i * step);
-                }
-            } else {
-                const ratio = Math.pow(upperBoundNum / lowerBoundNum, 1.0 / gridCountNum);
-                let val = lowerBoundNum;
-                for (let i = 0; i <= gridCountNum; i++) {
-                    gridLines.push(val);
-                    val *= ratio;
-                }
-            }
-
-            let profitPerQuote = finalProfit;
-            if (profitPerQuote <= 0) {
-                if (gridType === 'arithmetic') {
-                    const step = (upperBoundNum - lowerBoundNum) / gridCountNum;
-                    profitPerQuote = step / ((upperBoundNum + lowerBoundNum) / 2);
-                } else {
-                    profitPerQuote = Math.pow(upperBoundNum / lowerBoundNum, 1.0 / gridCountNum) - 1;
-                }
-            } else {
-                profitPerQuote = profitPerQuote / 100.0;
-            }
-
-            const fetchKlines = async (interval: string, limit: number) => {
-                const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${finalSymbol}&interval=${interval}&limit=${limit}`;
-                const response = await fetch(url);
-                if (!response.ok) throw new Error(`无法获取K线数据，可能交易对不正确: ${finalSymbol}`);
-                return await response.json();
-            };
-
-            const [klines5m, klines15m, klines1h] = await Promise.all([
-                fetchKlines('5m', 288),
-                fetchKlines('15m', 672),
-                fetchKlines('1h', 720)
-            ]);
-
-            const runSimulation = (klines: any[]) => {
-                let crossCount = 0;
-                let escapeCount = 0;
-                const totalKlines = klines.length;
-
-                for (let k of klines) {
-                    const high = parseFloat(k[2]);
-                    const low = parseFloat(k[3]);
-                    if (high > upperBoundNum || low < lowerBoundNum) {
-                        escapeCount++;
-                    }
-                    for (let i = 0; i < gridLines.length - 1; i++) {
-                        const lineHigh = gridLines[i + 1];
-                        const lineLow = gridLines[i];
-                        if (low <= lineLow && high >= lineHigh) {
-                            crossCount++;
-                        }
-                    }
-                }
-
-                const hits = Math.floor(crossCount / 2);
-                const escapeRate = totalKlines > 0 ? (escapeCount / totalKlines) * 100.0 : 0;
-                return { hits, escapeRate };
-            };
-
-            const daily = runSimulation(klines5m);
-            const weekly = runSimulation(klines15m);
-            const monthly = runSimulation(klines1h);
-
-            const orderSize = (Number(investment) / gridCountNum) * finalLeverage;
-            const dailyProfit = daily.hits * orderSize * profitPerQuote;
-            const weeklyProfit = weekly.hits * orderSize * profitPerQuote;
-            const monthlyProfit = monthly.hits * orderSize * profitPerQuote;
-
-            setSimulationResult({
-                daily: Number(dailyProfit.toFixed(2)),
-                weekly: Number(weeklyProfit.toFixed(2)),
-                monthly: Number(monthlyProfit.toFixed(2)),
-                hits_daily: daily.hits,
-                hits_weekly: weekly.hits,
-                hits_monthly: monthly.hits,
-                escape_daily: Number(daily.escapeRate.toFixed(2)),
-                escape_weekly: Number(weekly.escapeRate.toFixed(2)),
-                escape_monthly: Number(monthly.escapeRate.toFixed(2)),
+            const res = await fetch('/api/simulate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    symbol: finalSymbol, lowerBound, upperBound, gridCount, gridType, gridCategory, investment, leverage: finalLeverage, profitPerGrid: finalProfit
+                })
             });
-        } catch (e: any) {
-            setErrorMsg(e.message || '请求异常，无法连接到源数据服务。');
+            if (res.ok) {
+                const data = await res.json();
+                setSimulationResult(data);
+            } else {
+                try {
+                    const errResult = await res.json();
+                    if (errResult && errResult.error) {
+                        setErrorMsg(errResult.error);
+                    } else {
+                        setErrorMsg('计算失败，可能由于网络问题或交易对参数输入有误。');
+                    }
+                } catch {
+                    setErrorMsg('请求异常，无法识别的错误响应。');
+                }
+            }
+        } catch (e) {
+            setErrorMsg('请求异常，无法连接到计算核心服务。');
         } finally {
-            setTimeout(() => setLoading(false), 500);
+            setTimeout(() => setLoading(false), 1000);
         }
     };
 
     return (
-        <div className="max-w-4xl mx-auto p-4 md:p-8 bg-white dark:bg-gray-900 rounded-xl shadow-lg border border-gray-100 dark:border-gray-800 transition-colors">
+        <div className="max-w-4xl mx-auto p-4 md:p-8 bg-white dark:bg-gray-900 rounded-xl shadow-lg border border-gray-100 dark:border-gray-800 transition-colors relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-400 to-purple-500"></div>
             <h2 className="text-2xl font-bold mb-6 text-gray-800 dark:text-gray-100">加密网格策略计算器</h2>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import GridCalculator from './components/GridCalculator'
+import ClosePositionCalculator from './components/ClosePositionCalculator'
 
 const extraStyles = `
 @keyframes gradientBg {
@@ -20,7 +21,7 @@ html.dark .dynamic-bg {
 
 function App() {
   const [isDark, setIsDark] = useState(false);
-  const [activeTab, setActiveTab] = useState<'grid' | 'alerts'>('grid');
+  const [activeTab, setActiveTab] = useState<'grid' | 'close_calc'>('grid');
 
   useEffect(() => {
     if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
@@ -54,10 +55,10 @@ function App() {
               网格计算器
             </button>
             <button
-              onClick={() => setActiveTab('alerts')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'alerts' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'}`}
+              onClick={() => setActiveTab('close_calc')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'close_calc' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'}`}
             >
-              价格预警 (Mock)
+              平仓计算器
             </button>
           </div>
           <button 
@@ -71,17 +72,7 @@ function App() {
       </div>
       
       {activeTab === 'grid' && <GridCalculator />}
-      {activeTab === 'alerts' && (
-        <div className="max-w-4xl mx-auto p-4 md:p-8 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-800 transition-colors text-center py-20 animate-fade-in">
-          <svg className="w-16 h-16 mx-auto text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-          </svg>
-          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">价格监控终端 (Mock)</h2>
-          <p className="text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-            此功能页面目前仅为排版演示。在未来的版本中，将在这里实现与 Telegram 机器人同步的跨端价格监控报警看板功能。
-          </p>
-        </div>
-      )}
+      {activeTab === 'close_calc' && <ClosePositionCalculator />}
     </div>
   )
 }
